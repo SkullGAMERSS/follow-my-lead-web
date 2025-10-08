@@ -1,9 +1,6 @@
 import { useEffect, useRef } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 interface Participant {
   id: string;
@@ -20,43 +17,31 @@ interface MapProps {
 
 const Map = ({ participants, destination }: MapProps) => {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const markers = useRef<{ [key: string]: mapboxgl.Marker }>({});
-  const [apiKey, setApiKey] = useState<string>('');
-  const [mapInitialized, setMapInitialized] = useState(false);
-
-  const initializeMap = () => {
-    if (!mapContainer.current || !apiKey) return;
-
-    try {
-      mapboxgl.accessToken = apiKey;
-      
-      const initialCenter: [number, number] = destination 
-        ? [destination.lng, destination.lat]
-        : [-74.5, 40];
-
-      map.current = new mapboxgl.Map({
-        container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        center: initialCenter,
-        zoom: 12,
-      });
-
-      map.current.addControl(
-        new mapboxgl.NavigationControl({
-          visualizePitch: true,
-        }),
-        'top-right'
-      );
-
-      setMapInitialized(true);
-    } catch (error) {
-      console.error('Error initializing map:', error);
-    }
-  };
+  const map = useRef<L.Map | null>(null);
+  const markers = useRef<{ [key: string]: L.Marker }>({});
 
   useEffect(() => {
-    if (!map.current || !mapInitialized) return;
+    if (!mapContainer.current || map.current) return;
+
+    const initialCenter: [number, number] = destination 
+      ? [destination.lat, destination.lng]
+      : [40, -74.5];
+
+    map.current = L.map(mapContainer.current).setView(initialCenter, 12);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+    }).addTo(map.current);
+
+    return () => {
+      map.current?.remove();
+      map.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!map.current) return;
 
     // Clear old markers
     Object.values(markers.current).forEach(marker => marker.remove());
@@ -64,17 +49,16 @@ const Map = ({ participants, destination }: MapProps) => {
 
     // Add destination marker
     if (destination) {
-      const el = document.createElement('div');
-      el.className = 'destination-marker';
-      el.style.width = '30px';
-      el.style.height = '30px';
-      el.style.backgroundImage = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAiIGhlaWdodD0iMzAiIHZpZXdCb3g9IjAgMCAzMCAzMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNSIgY3k9IjE1IiByPSIxNSIgZmlsbD0iI0Y9N0M0QyIvPjxjaXJjbGUgY3g9IjE1IiBjeT0iMTUiIHI9IjgiIGZpbGw9IndoaXRlIi8+PC9zdmc+)';
-      el.style.backgroundSize = 'cover';
+      const destinationIcon = L.divIcon({
+        className: 'custom-destination-marker',
+        html: `<div style="width: 30px; height: 30px; background: #F97316; border-radius: 50%; border: 4px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      });
 
-      new mapboxgl.Marker(el)
-        .setLngLat([destination.lng, destination.lat])
-        .setPopup(new mapboxgl.Popup().setHTML('<strong>Destination</strong>'))
-        .addTo(map.current);
+      L.marker([destination.lat, destination.lng], { icon: destinationIcon })
+        .addTo(map.current)
+        .bindPopup('<strong>Destination</strong>');
     }
 
     // Add participant markers
@@ -83,78 +67,41 @@ const Map = ({ participants, destination }: MapProps) => {
     );
 
     validParticipants.forEach((participant) => {
-      const el = document.createElement('div');
-      el.className = 'participant-marker';
-      el.style.width = '24px';
-      el.style.height = '24px';
-      el.style.borderRadius = '50%';
-      el.style.backgroundColor = participant.is_host ? '#9b87f5' : '#6E59A5';
-      el.style.border = '3px solid white';
-      el.style.cursor = 'pointer';
-      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      const color = participant.is_host ? '#9b87f5' : '#6E59A5';
+      const participantIcon = L.divIcon({
+        className: 'custom-participant-marker',
+        html: `<div style="width: 24px; height: 24px; background: ${color}; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
 
-      const marker = new mapboxgl.Marker(el)
-        .setLngLat([participant.longitude!, participant.latitude!])
-        .setPopup(
-          new mapboxgl.Popup({ offset: 25 }).setHTML(
-            `<strong>${participant.display_name}</strong>${participant.is_host ? ' (Host)' : ''}`
-          )
-        )
-        .addTo(map.current!);
+      const marker = L.marker([participant.latitude!, participant.longitude!], { 
+        icon: participantIcon 
+      })
+        .addTo(map.current!)
+        .bindPopup(`<strong>${participant.display_name}</strong>${participant.is_host ? ' (Host)' : ''}`);
 
       markers.current[participant.id] = marker;
     });
 
     // Fit bounds to show all markers
     if (validParticipants.length > 0 || destination) {
-      const bounds = new mapboxgl.LngLatBounds();
+      const bounds = L.latLngBounds([]);
 
       validParticipants.forEach(p => {
-        bounds.extend([p.longitude!, p.latitude!]);
+        bounds.extend([p.latitude!, p.longitude!]);
       });
 
       if (destination) {
-        bounds.extend([destination.lng, destination.lat]);
+        bounds.extend([destination.lat, destination.lng]);
       }
 
       map.current.fitBounds(bounds, {
-        padding: 50,
+        padding: [50, 50],
         maxZoom: 15,
       });
     }
-  }, [participants, destination, mapInitialized]);
-
-  if (!apiKey) {
-    return (
-      <div className="aspect-video bg-secondary/30 rounded-xl flex items-center justify-center border-2 border-border p-8">
-        <div className="max-w-md w-full space-y-4">
-          <div className="text-center space-y-2">
-            <h3 className="text-lg font-semibold">Mapbox API Key Required</h3>
-            <p className="text-sm text-muted-foreground">
-              Enter your Mapbox public token to display the map.
-              Get yours at <a href="https://mapbox.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">mapbox.com</a>
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="mapbox-key">Mapbox Public Token</Label>
-            <Input
-              id="mapbox-key"
-              type="text"
-              placeholder="pk.ey..."
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-          </div>
-          <button
-            onClick={initializeMap}
-            className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            Initialize Map
-          </button>
-        </div>
-      </div>
-    );
-  }
+  }, [participants, destination]);
 
   return (
     <div className="relative w-full aspect-video rounded-xl overflow-hidden border-2 border-border shadow-lg">
