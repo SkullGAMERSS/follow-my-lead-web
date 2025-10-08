@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { nanoid } from "nanoid";
-import { MapPin, Navigation } from "lucide-react";
+import { MapPin, Navigation, Target } from "lucide-react";
+import MapSelector from "@/components/MapSelector";
 
 const CreateSession = () => {
   const navigate = useNavigate();
@@ -15,6 +16,8 @@ const CreateSession = () => {
   const [loading, setLoading] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [destination, setDestination] = useState("");
+  const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [showMap, setShowMap] = useState(false);
 
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,20 +31,28 @@ const CreateSession = () => {
       return;
     }
 
+    if (!destinationCoords) {
+      toast({
+        title: "Select destination",
+        description: "Please click on the map to set your destination",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
       // Generate unique session code
       const sessionCode = nanoid(6).toUpperCase();
       
-      // For MVP, we'll use a placeholder location (users can enhance this with real geocoding later)
       const { data: session, error: sessionError } = await supabase
         .from("ride_sessions")
         .insert({
           session_code: sessionCode,
-          host_id: crypto.randomUUID(), // Anonymous user ID for MVP
-          destination_lat: 0, // Placeholder - will be enhanced with real geocoding
-          destination_lng: 0,
+          host_id: crypto.randomUUID(),
+          destination_lat: destinationCoords.lat,
+          destination_lng: destinationCoords.lng,
           destination_address: destination,
           status: "waiting",
         })
@@ -107,22 +118,52 @@ const CreateSession = () => {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label htmlFor="destination" className="text-sm font-medium flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-accent" />
                 Destination
               </Label>
               <Input
                 id="destination"
-                placeholder="Sunset Point Lookout"
+                placeholder="e.g. Sunset Point Lookout"
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
                 className="bg-input border-border focus:ring-primary"
                 required
               />
-              <p className="text-xs text-muted-foreground">
-                Enter your destination address or name
-              </p>
+              
+              {destinationCoords && (
+                <div className="flex items-center gap-2 text-sm p-3 rounded-lg bg-primary/10 border border-primary/30">
+                  <Target className="w-4 h-4 text-primary" />
+                  <span className="text-primary font-medium">
+                    Location selected: {destinationCoords.lat.toFixed(4)}, {destinationCoords.lng.toFixed(4)}
+                  </span>
+                </div>
+              )}
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-primary/30 hover:bg-primary/10 hover:border-primary"
+                onClick={() => setShowMap(!showMap)}
+              >
+                <MapPin className="w-4 h-4 mr-2" />
+                {showMap ? "Hide Map" : "Pick Location on Map"}
+              </Button>
+
+              {showMap && (
+                <div className="rounded-xl overflow-hidden border-2 border-primary/30 shadow-lg">
+                  <MapSelector
+                    onLocationSelect={(coords) => {
+                      setDestinationCoords(coords);
+                      toast({
+                        title: "Location selected!",
+                        description: "You can now create your session",
+                      });
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             <Button 
