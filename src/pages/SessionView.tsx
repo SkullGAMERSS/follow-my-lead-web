@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Copy, MapPin, Users, Navigation, Circle } from "lucide-react";
 import type { Database } from "@/integrations/supabase/types";
+import Map from "@/components/Map";
 
 type RideSession = Database["public"]["Tables"]["ride_sessions"]["Row"];
 type Participant = Database["public"]["Tables"]["participants"]["Row"];
@@ -276,17 +277,19 @@ const SessionView = () => {
           </div>
         </Card>
 
-        {/* Map placeholder - will be enhanced with Google Maps */}
+        {/* Live Map */}
         <Card className="p-6 bg-card/80 backdrop-blur-sm border-border">
-          <div className="aspect-video bg-secondary/30 rounded-xl flex items-center justify-center border-2 border-dashed border-border">
-            <div className="text-center space-y-2">
-              <MapPin className="w-12 h-12 text-muted-foreground mx-auto" />
-              <p className="text-muted-foreground">Map view coming soon</p>
-              <p className="text-sm text-muted-foreground">
-                Real-time participant tracking will appear here
-              </p>
-            </div>
+          <div className="flex items-center gap-2 mb-4">
+            <MapPin className="w-5 h-5 text-primary" />
+            <h2 className="text-xl font-semibold">Live Tracking</h2>
           </div>
+          <Map 
+            participants={participants}
+            destination={session.destination_lat && session.destination_lng ? {
+              lat: session.destination_lat,
+              lng: session.destination_lng
+            } : null}
+          />
         </Card>
       </div>
 
