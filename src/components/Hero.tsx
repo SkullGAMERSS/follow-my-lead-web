@@ -56,7 +56,7 @@ const Hero = () => {
     <>
       <Navbar />
       
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-24 relative overflow-hidden cursor-glow">
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-24 relative overflow-hidden">
         {/* Enhanced animated background */}
         <div className="absolute inset-0 opacity-30 pointer-events-none">
           <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/30 rounded-full blur-3xl animate-pulse" />
