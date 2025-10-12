@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,23 +9,61 @@ import { supabase } from "@/integrations/supabase/client";
 import { nanoid } from "nanoid";
 import { MapPin, Navigation, Target } from "lucide-react";
 import MapSelector from "@/components/MapSelector";
+import type { User } from "@supabase/supabase-js";
 
 const CreateSession = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [displayName, setDisplayName] = useState("");
+  const [user, setUser] = useState<User | null>(null);
   const [destination, setDestination] = useState("");
   const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [showMap, setShowMap] = useState(false);
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        toast({
+          title: "Authentication required",
+          description: "Please sign in to create a ride session",
+          variant: "destructive",
+        });
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate, toast]);
+
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!displayName.trim() || !destination.trim()) {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in first",
+        variant: "destructive",
+      });
+      navigate("/auth");
+      return;
+    }
+
+    if (!destination.trim()) {
       toast({
         title: "Missing information",
-        description: "Please provide your name and destination",
+        description: "Please provide a destination",
         variant: "destructive",
       });
       return;
@@ -43,6 +81,13 @@ const CreateSession = () => {
     setLoading(true);
 
     try {
+      // Get user's display name from profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .single();
+
       // Generate unique session code
       const sessionCode = nanoid(6).toUpperCase();
       
@@ -50,7 +95,7 @@ const CreateSession = () => {
         .from("ride_sessions")
         .insert({
           session_code: sessionCode,
-          host_id: crypto.randomUUID(),
+          host_id: user.id,
           destination_lat: destinationCoords.lat,
           destination_lng: destinationCoords.lng,
           destination_address: destination,
@@ -66,8 +111,8 @@ const CreateSession = () => {
         .from("participants")
         .insert({
           session_id: session.id,
-          user_id: session.host_id,
-          display_name: displayName,
+          user_id: user.id,
+          display_name: profile?.display_name || "Host",
           is_host: true,
         });
 
@@ -80,17 +125,28 @@ const CreateSession = () => {
 
       // Navigate to the session
       navigate(`/session/${sessionCode}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating session:", error);
       toast({
         title: "Error",
-        description: "Failed to create session. Please try again.",
+        description: error.message || "Failed to create session. Please try again.",
         variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
   };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-muted-foreground">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center px-6 py-12">
@@ -106,18 +162,6 @@ const CreateSession = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleCreateSession} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="name" className="text-sm font-medium">Your Name</Label>
-              <Input
-                id="name"
-                placeholder="John Doe"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="bg-input border-border focus:ring-primary"
-                required
-              />
-            </div>
-
             <div className="space-y-3">
               <Label htmlFor="destination" className="text-sm font-medium flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-accent" />

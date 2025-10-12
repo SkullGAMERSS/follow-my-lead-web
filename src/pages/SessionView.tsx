@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Copy, MapPin, Users, Navigation, Circle } from "lucide-react";
+import { Copy, MapPin, Users, Navigation, Circle, Play } from "lucide-react";
 import type { Database } from "@/integrations/supabase/types";
 import Map from "@/components/Map";
+import type { User } from "@supabase/supabase-js";
 
 type RideSession = Database["public"]["Tables"]["ride_sessions"]["Row"];
 type Participant = Database["public"]["Tables"]["participants"]["Row"];
@@ -15,22 +16,51 @@ type Participant = Database["public"]["Tables"]["participants"]["Row"];
 const SessionView = () => {
   const { code } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   
   const [session, setSession] = useState<RideSession | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentUserId] = useState(crypto.randomUUID());
-  const [hasJoined, setHasJoined] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [currentParticipant, setCurrentParticipant] = useState<Participant | null>(null);
 
   useEffect(() => {
-    if (!code) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        toast({
+          title: "Authentication required",
+          description: "Please sign in to view this session",
+          variant: "destructive",
+        });
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate, toast]);
+
+  useEffect(() => {
+    if (!code || !user) return;
     loadSession();
-    subscribeToUpdates();
-  }, [code]);
+    const unsubscribe = subscribeToUpdates();
+    return unsubscribe;
+  }, [code, user]);
 
   const loadSession = async () => {
+    if (!user) return;
+
     try {
       // Load session data
       const { data: sessionData, error: sessionError } = await supabase
@@ -62,22 +92,21 @@ const SessionView = () => {
       if (participantsError) throw participantsError;
       setParticipants(participantsData || []);
 
-      // Check if user needs to join
-      const displayName = searchParams.get("name");
-      const existingParticipant = participantsData?.find(p => p.user_id === currentUserId);
+      // Check if user is already a participant
+      const existingParticipant = participantsData?.find(p => p.user_id === user.id);
       
-      if (!existingParticipant && displayName) {
-        await joinSession(sessionData.id, displayName);
-      } else if (existingParticipant) {
-        setHasJoined(true);
-        startLocationTracking(sessionData.id, existingParticipant.id);
+      if (!existingParticipant) {
+        await joinSession(sessionData.id);
+      } else {
+        setCurrentParticipant(existingParticipant);
+        startLocationTracking(existingParticipant.id);
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading session:", error);
       toast({
         title: "Error",
-        description: "Failed to load session",
+        description: error.message || "Failed to load session",
         variant: "destructive",
       });
     } finally {
@@ -85,37 +114,49 @@ const SessionView = () => {
     }
   };
 
-  const joinSession = async (sessionId: string, displayName: string) => {
+  const joinSession = async (sessionId: string) => {
+    if (!user) return;
+
     try {
-      const { error } = await supabase
+      // Get user's display name from profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .single();
+
+      const { data, error } = await supabase
         .from("participants")
         .insert({
           session_id: sessionId,
-          user_id: currentUserId,
-          display_name: displayName,
+          user_id: user.id,
+          display_name: profile?.display_name || "Rider",
           is_host: false,
-        });
+        })
+        .select()
+        .single();
 
       if (error) throw error;
       
-      setHasJoined(true);
+      setCurrentParticipant(data);
       toast({
         title: "Joined successfully!",
         description: "You're now part of the ride",
       });
       
-      loadSession(); // Reload to get participant ID
-    } catch (error) {
+      startLocationTracking(data.id);
+      loadSession(); // Reload to get updated participant list
+    } catch (error: any) {
       console.error("Error joining session:", error);
       toast({
         title: "Error",
-        description: "Failed to join session",
+        description: error.message || "Failed to join session",
         variant: "destructive",
       });
     }
   };
 
-  const startLocationTracking = (sessionId: string, participantId: string) => {
+  const startLocationTracking = (participantId: string) => {
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (position) => {
@@ -125,14 +166,13 @@ const SessionView = () => {
               latitude: position.coords.latitude,
               longitude: position.coords.longitude,
             })
-            .eq("id", participantId)
-            .then(() => console.log("Location updated"));
+            .eq("id", participantId);
         },
         (error) => {
           console.error("Geolocation error:", error);
           toast({
             title: "Location access needed",
-            description: "Please enable location permissions",
+            description: "Please enable location permissions to share your position",
             variant: "destructive",
           });
         },
@@ -156,7 +196,22 @@ const SessionView = () => {
           table: "participants",
         },
         () => {
-          loadSession();
+          if (user) {
+            loadSession();
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ride_sessions",
+        },
+        () => {
+          if (user) {
+            loadSession();
+          }
         }
       )
       .subscribe();
@@ -174,7 +229,59 @@ const SessionView = () => {
     });
   };
 
-  if (loading) {
+  const handleStartRide = async () => {
+    if (!session || !user) return;
+
+    try {
+      const { error } = await supabase
+        .from("ride_sessions")
+        .update({ status: "active", started_at: new Date().toISOString() })
+        .eq("id", session.id);
+
+      if (error) throw error;
+
+      toast({ 
+        title: "Ride started!",
+        description: "All participants can now follow the route" 
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start ride",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleLeaveSession = async () => {
+    if (!currentParticipant) {
+      navigate("/");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("participants")
+        .delete()
+        .eq("id", currentParticipant.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Left session",
+        description: "You've left the ride session",
+      });
+      navigate("/");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to leave session",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -187,15 +294,17 @@ const SessionView = () => {
 
   if (!session) return null;
 
+  const isHost = currentParticipant?.is_host || false;
+
   return (
     <div className="min-h-screen p-6 pb-24">
       {/* Header */}
       <div className="max-w-6xl mx-auto space-y-6">
-        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border">
+        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border hover-lift">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-3 flex-1">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-br from-primary to-primary-glow rounded-xl">
+                <div className="p-2 bg-gradient-to-br from-primary to-primary-glow rounded-xl shadow-glow">
                   <Navigation className="w-6 h-6 text-primary-foreground" />
                 </div>
                 <div>
@@ -212,14 +321,14 @@ const SessionView = () => {
               </div>
 
               <div className="flex items-center gap-3">
-                <Badge variant="outline" className="text-lg font-mono px-4 py-2">
+                <Badge variant="outline" className="text-lg font-mono px-4 py-2 border-primary/50">
                   {session.session_code}
                 </Badge>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={copySessionCode}
-                  className="text-muted-foreground"
+                  className="text-muted-foreground hover:text-primary"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
@@ -228,7 +337,7 @@ const SessionView = () => {
 
             <Badge 
               variant={session.status === "active" ? "default" : "secondary"}
-              className="text-sm"
+              className="text-sm px-4 py-1"
             >
               {session.status}
             </Badge>
@@ -236,7 +345,7 @@ const SessionView = () => {
         </Card>
 
         {/* Participants */}
-        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border">
+        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border hover-lift">
           <div className="flex items-center gap-2 mb-4">
             <Users className="w-5 h-5 text-primary" />
             <h2 className="text-xl font-semibold">
@@ -248,22 +357,27 @@ const SessionView = () => {
             {participants.map((participant) => (
               <div
                 key={participant.id}
-                className="flex items-center justify-between p-4 rounded-xl bg-secondary/50 border border-border"
+                className="flex items-center justify-between p-4 rounded-xl bg-secondary/50 border border-border hover:border-primary/50 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Circle
                       className={`w-3 h-3 ${
                         participant.latitude && participant.longitude
-                          ? "fill-primary text-primary"
+                          ? "fill-primary text-primary animate-pulse"
                           : "fill-muted text-muted"
-                      } animate-pulse`}
+                      }`}
                     />
                   </div>
                   <span className="font-medium">{participant.display_name}</span>
                   {participant.is_host && (
-                    <Badge variant="secondary" className="text-xs">
+                    <Badge variant="secondary" className="text-xs bg-primary/20 text-primary border-primary/30">
                       Host
+                    </Badge>
+                  )}
+                  {participant.user_id === user.id && (
+                    <Badge variant="outline" className="text-xs">
+                      You
                     </Badge>
                   )}
                 </div>
@@ -278,7 +392,7 @@ const SessionView = () => {
         </Card>
 
         {/* Live Map */}
-        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border">
+        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border hover-lift">
           <div className="flex items-center gap-2 mb-4">
             <MapPin className="w-5 h-5 text-primary" />
             <h2 className="text-xl font-semibold">Live Tracking</h2>
@@ -298,22 +412,17 @@ const SessionView = () => {
         <div className="max-w-6xl mx-auto flex gap-3">
           <Button
             variant="outline"
-            className="flex-1"
-            onClick={() => navigate("/")}
+            className="flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
+            onClick={handleLeaveSession}
           >
             Leave Session
           </Button>
-          {session.status === "waiting" && participants.some(p => p.user_id === currentUserId && p.is_host) && (
+          {session.status === "waiting" && isHost && (
             <Button
-              className="flex-1 bg-gradient-to-r from-primary to-primary-glow"
-              onClick={async () => {
-                await supabase
-                  .from("ride_sessions")
-                  .update({ status: "active", started_at: new Date().toISOString() })
-                  .eq("id", session.id);
-                toast({ title: "Ride started!" });
-              }}
+              className="flex-1 bg-gradient-to-r from-primary to-primary-glow hover-glow"
+              onClick={handleStartRide}
             >
+              <Play className="w-4 h-4 mr-2" />
               Start Ride
             </Button>
           )}

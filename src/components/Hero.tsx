@@ -1,10 +1,38 @@
 import { Button } from "@/components/ui/button";
-import { Users, MapPin, Navigation, Shield, Zap, Globe, Route, Share2 } from "lucide-react";
+import { Users, MapPin, Navigation, Shield, Zap, Globe, Route, Share2, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "./Navbar";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import type { User } from "@supabase/supabase-js";
+import { useToast } from "@/hooks/use-toast";
 
 const Hero = () => {
   const navigate = useNavigate();
+  const [user, setUser] = useState<User | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    toast({
+      title: "Signed out",
+      description: "You've been signed out successfully.",
+    });
+  };
 
   const features = [
     {
@@ -89,23 +117,45 @@ const Hero = () => {
 
             {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center pt-6">
-              <Button 
-                size="lg"
-                className="text-lg px-10 py-7 bg-gradient-primary hover-glow hover-lift font-semibold"
-                onClick={() => navigate('/create')}
-              >
-                <Route className="w-5 h-5 mr-2" />
-                Create a Ride
-              </Button>
-              <Button 
-                size="lg"
-                variant="outline"
-                className="text-lg px-10 py-7 border-2 border-primary text-primary hover:bg-primary/10 hover-lift font-semibold"
-                onClick={() => navigate('/join')}
-              >
-                <Share2 className="w-5 h-5 mr-2" />
-                Join a Ride
-              </Button>
+              {user ? (
+                <>
+                  <Button 
+                    size="lg"
+                    className="text-lg px-10 py-7 bg-gradient-primary hover-glow hover-lift font-semibold"
+                    onClick={() => navigate('/create')}
+                  >
+                    <Route className="w-5 h-5 mr-2" />
+                    Create a Ride
+                  </Button>
+                  <Button 
+                    size="lg"
+                    variant="outline"
+                    className="text-lg px-10 py-7 border-2 border-primary text-primary hover:bg-primary/10 hover-lift font-semibold"
+                    onClick={() => navigate('/join')}
+                  >
+                    <Share2 className="w-5 h-5 mr-2" />
+                    Join a Ride
+                  </Button>
+                  <Button 
+                    size="lg"
+                    variant="outline"
+                    className="text-lg px-10 py-7 border-2 border-destructive text-destructive hover:bg-destructive/10 hover-lift font-semibold"
+                    onClick={handleSignOut}
+                  >
+                    <LogOut className="w-5 h-5 mr-2" />
+                    Sign Out
+                  </Button>
+                </>
+              ) : (
+                <Button 
+                  size="lg"
+                  className="text-lg px-10 py-7 bg-gradient-primary hover-glow hover-lift font-semibold"
+                  onClick={() => navigate('/auth')}
+                >
+                  <Route className="w-5 h-5 mr-2" />
+                  Get Started
+                </Button>
+              )}
             </div>
 
             {/* Trust Indicators */}
@@ -146,7 +196,7 @@ const Hero = () => {
           <div className="pt-12">
             <div className="inline-block p-8 rounded-3xl bg-gradient-primary/10 border border-primary/20 hover-lift">
               <p className="text-sm text-muted-foreground">
-                Join thousands of riders who trust RideSync • No registration required to start
+                Join thousands of riders who trust RideSync • Secure authentication required
               </p>
             </div>
           </div>

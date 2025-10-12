@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,28 +6,78 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Users } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import type { User } from "@supabase/supabase-js";
 
 const JoinSession = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [sessionCode, setSessionCode] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        toast({
+          title: "Authentication required",
+          description: "Please sign in to join a ride session",
+          variant: "destructive",
+        });
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        navigate("/auth");
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate, toast]);
 
   const handleJoinSession = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!sessionCode.trim() || !displayName.trim()) {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in first",
+        variant: "destructive",
+      });
+      navigate("/auth");
+      return;
+    }
+
+    if (!sessionCode.trim()) {
       toast({
         title: "Missing information",
-        description: "Please provide your name and session code",
+        description: "Please provide a session code",
         variant: "destructive",
       });
       return;
     }
 
-    // Navigate to session with name as query param
-    navigate(`/session/${sessionCode.toUpperCase()}?name=${encodeURIComponent(displayName)}`);
+    // Navigate to session
+    navigate(`/session/${sessionCode.toUpperCase()}`);
   };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-muted-foreground">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center px-6 py-12">
@@ -43,18 +93,6 @@ const JoinSession = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleJoinSession} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="name" className="text-sm font-medium">Your Name</Label>
-              <Input
-                id="name"
-                placeholder="Jane Smith"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="bg-input border-border focus:ring-accent"
-                required
-              />
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="code" className="text-sm font-medium">Session Code</Label>
               <Input
