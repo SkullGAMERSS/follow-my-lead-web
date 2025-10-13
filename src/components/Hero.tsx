@@ -85,11 +85,22 @@ const Hero = () => {
       <Navbar />
       
       <div className="min-h-screen flex flex-col items-center justify-center px-6 py-24 relative overflow-hidden">
-        {/* Enhanced animated background */}
+        {/* Enhanced animated background with floating particles */}
         <div className="absolute inset-0 opacity-30 pointer-events-none">
           <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/30 rounded-full blur-3xl animate-pulse" />
           <div className="absolute bottom-1/4 right-1/4 w-[600px] h-[600px] bg-accent/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: "1.5s" }} />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-primary-glow/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: "3s" }} />
+          
+          {/* Floating particles */}
+          <div className="absolute top-[20%] left-[15%] w-2 h-2 bg-primary/40 rounded-full animate-float" />
+          <div className="absolute top-[30%] right-[25%] w-3 h-3 bg-accent/30 rounded-full animate-float" 
+               style={{ animationDelay: '2s', animationDuration: '4s' }} />
+          <div className="absolute bottom-[30%] left-[50%] w-2 h-2 bg-primary/50 rounded-full animate-float" 
+               style={{ animationDelay: '1s', animationDuration: '5s' }} />
+          <div className="absolute top-[60%] left-[30%] w-2 h-2 bg-accent/40 rounded-full animate-float" 
+               style={{ animationDelay: '3s', animationDuration: '6s' }} />
+          <div className="absolute bottom-[20%] right-[40%] w-3 h-3 bg-primary-glow/30 rounded-full animate-float" 
+               style={{ animationDelay: '0.5s', animationDuration: '4.5s' }} />
         </div>
 
         {/* Main Content */}
