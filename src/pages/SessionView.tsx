@@ -134,7 +134,7 @@ const SessionView = () => {
           is_host: false,
         })
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       
