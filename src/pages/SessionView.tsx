@@ -158,7 +158,7 @@ const SessionView = () => {
 
   const startLocationTracking = (participantId: string) => {
     if ("geolocation" in navigator) {
-      navigator.geolocation.watchPosition(
+      const watchId = navigator.geolocation.watchPosition(
         (position) => {
           supabase
             .from("participants")
@@ -166,7 +166,10 @@ const SessionView = () => {
               latitude: position.coords.latitude,
               longitude: position.coords.longitude,
             })
-            .eq("id", participantId);
+            .eq("id", participantId)
+            .then(() => {
+              console.log("Location updated successfully");
+            });
         },
         (error) => {
           console.error("Geolocation error:", error);
@@ -178,10 +181,15 @@ const SessionView = () => {
         },
         {
           enableHighAccuracy: true,
-          timeout: 5000,
+          timeout: 10000,
           maximumAge: 0,
         }
       );
+      
+      // Store watchId to clear it later if needed
+      return () => {
+        navigator.geolocation.clearWatch(watchId);
+      };
     }
   };
 
