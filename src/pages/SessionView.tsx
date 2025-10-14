@@ -162,22 +162,23 @@ const SessionView = () => {
       
       const watchId = navigator.geolocation.watchPosition(
         (position) => {
-          supabase
-            .from("participants")
-            .update({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-            })
-            .eq("id", participantId)
-            .then(({ error }) => {
-              if (error) {
-                // Silently log database update errors to prevent notification spam
-                console.error("Location update error:", error);
-              }
-            });
+          // Only update if location has high accuracy
+          if (position.coords.accuracy <= 100) {
+            supabase
+              .from("participants")
+              .update({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              })
+              .eq("id", participantId)
+              .then(({ error }) => {
+                if (error) {
+                  console.error("Location update error:", error);
+                }
+              });
+          }
         },
         (error) => {
-          // Only show error toast once to prevent spam
           if (!hasShownError) {
             hasShownError = true;
             console.error("Geolocation error:", error);
@@ -190,12 +191,11 @@ const SessionView = () => {
         },
         {
           enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
+          timeout: 15000,
+          maximumAge: 5000,
         }
       );
       
-      // Store watchId to clear it later if needed
       return () => {
         navigator.geolocation.clearWatch(watchId);
       };
@@ -212,7 +212,8 @@ const SessionView = () => {
           schema: "public",
           table: "participants",
         },
-        () => {
+        (payload) => {
+          console.log("Participants changed:", payload);
           if (user) {
             loadSession();
           }
@@ -225,7 +226,8 @@ const SessionView = () => {
           schema: "public",
           table: "ride_sessions",
         },
-        () => {
+        (payload) => {
+          console.log("Session changed:", payload);
           if (user) {
             loadSession();
           }
@@ -277,6 +279,7 @@ const SessionView = () => {
     }
 
     try {
+      // First delete the participant record
       const { error } = await supabase
         .from("participants")
         .delete()
@@ -284,11 +287,18 @@ const SessionView = () => {
 
       if (error) throw error;
 
+      // Clear current participant state immediately
+      setCurrentParticipant(null);
+      
       toast({
         title: "Left session",
         description: "You've left the ride session",
       });
-      navigate("/");
+      
+      // Navigate away after a brief delay to ensure the deletion propagates
+      setTimeout(() => {
+        navigate("/");
+      }, 500);
     } catch (error: any) {
       toast({
         title: "Error",
