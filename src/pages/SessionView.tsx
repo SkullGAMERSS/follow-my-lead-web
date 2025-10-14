@@ -67,7 +67,7 @@ const SessionView = () => {
         .from("ride_sessions")
         .select("*")
         .eq("session_code", code!)
-        .single();
+        .maybeSingle();
 
       if (sessionError) throw sessionError;
       if (!sessionData) {
@@ -123,7 +123,7 @@ const SessionView = () => {
         .from("profiles")
         .select("display_name")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
       const { data, error } = await supabase
         .from("participants")
