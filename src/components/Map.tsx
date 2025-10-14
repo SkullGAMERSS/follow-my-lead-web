@@ -63,7 +63,7 @@ const Map = ({ participants, destination }: MapProps) => {
         return data.routes[0];
       }
     } catch (error) {
-      console.error('Error fetching route:', error);
+      // Silently fail - route fetching is non-critical
     }
     return null;
   };

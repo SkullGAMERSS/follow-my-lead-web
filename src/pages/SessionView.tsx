@@ -158,6 +158,8 @@ const SessionView = () => {
 
   const startLocationTracking = (participantId: string) => {
     if ("geolocation" in navigator) {
+      let hasShownError = false;
+      
       const watchId = navigator.geolocation.watchPosition(
         (position) => {
           supabase
@@ -167,17 +169,24 @@ const SessionView = () => {
               longitude: position.coords.longitude,
             })
             .eq("id", participantId)
-            .then(() => {
-              console.log("Location updated successfully");
+            .then(({ error }) => {
+              if (error) {
+                // Silently log database update errors to prevent notification spam
+                console.error("Location update error:", error);
+              }
             });
         },
         (error) => {
-          console.error("Geolocation error:", error);
-          toast({
-            title: "Location access needed",
-            description: "Please enable location permissions to share your position",
-            variant: "destructive",
-          });
+          // Only show error toast once to prevent spam
+          if (!hasShownError) {
+            hasShownError = true;
+            console.error("Geolocation error:", error);
+            toast({
+              title: "Location access needed",
+              description: "Please enable location permissions to share your position",
+              variant: "destructive",
+            });
+          }
         },
         {
           enableHighAccuracy: true,
