@@ -67,7 +67,7 @@ const SessionView = () => {
         .from("ride_sessions")
         .select("*")
         .eq("session_code", code!)
-        .single();
+        .maybeSingle();
 
       if (sessionError) throw sessionError;
       if (!sessionData) {
@@ -123,7 +123,7 @@ const SessionView = () => {
         .from("profiles")
         .select("display_name")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
       const { data, error } = await supabase
         .from("participants")
@@ -158,30 +158,47 @@ const SessionView = () => {
 
   const startLocationTracking = (participantId: string) => {
     if ("geolocation" in navigator) {
-      navigator.geolocation.watchPosition(
+      let hasShownError = false;
+      
+      const watchId = navigator.geolocation.watchPosition(
         (position) => {
-          supabase
-            .from("participants")
-            .update({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-            })
-            .eq("id", participantId);
+          // Only update if location has high accuracy
+          if (position.coords.accuracy <= 100) {
+            supabase
+              .from("participants")
+              .update({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              })
+              .eq("id", participantId)
+              .then(({ error }) => {
+                if (error) {
+                  console.error("Location update error:", error);
+                }
+              });
+          }
         },
         (error) => {
-          console.error("Geolocation error:", error);
-          toast({
-            title: "Location access needed",
-            description: "Please enable location permissions to share your position",
-            variant: "destructive",
-          });
+          if (!hasShownError) {
+            hasShownError = true;
+            console.error("Geolocation error:", error);
+            toast({
+              title: "Location access needed",
+              description: "Please enable location permissions to share your position",
+              variant: "destructive",
+            });
+          }
         },
         {
           enableHighAccuracy: true,
-          timeout: 5000,
-          maximumAge: 0,
+          timeout: 15000,
+          maximumAge: 5000,
         }
       );
+      
+      return () => {
+        navigator.geolocation.clearWatch(watchId);
+      };
     }
   };
 
@@ -195,7 +212,8 @@ const SessionView = () => {
           schema: "public",
           table: "participants",
         },
-        () => {
+        (payload) => {
+          console.log("Participants changed:", payload);
           if (user) {
             loadSession();
           }
@@ -208,7 +226,8 @@ const SessionView = () => {
           schema: "public",
           table: "ride_sessions",
         },
-        () => {
+        (payload) => {
+          console.log("Session changed:", payload);
           if (user) {
             loadSession();
           }
@@ -260,6 +279,7 @@ const SessionView = () => {
     }
 
     try {
+      // First delete the participant record
       const { error } = await supabase
         .from("participants")
         .delete()
@@ -267,11 +287,18 @@ const SessionView = () => {
 
       if (error) throw error;
 
+      // Clear current participant state immediately
+      setCurrentParticipant(null);
+      
       toast({
         title: "Left session",
         description: "You've left the ride session",
       });
-      navigate("/");
+      
+      // Navigate away after a brief delay to ensure the deletion propagates
+      setTimeout(() => {
+        navigate("/");
+      }, 500);
     } catch (error: any) {
       toast({
         title: "Error",
